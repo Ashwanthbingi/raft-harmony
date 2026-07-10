@@ -19,6 +19,7 @@ export function SiteNav() {
         <div className="mx-1 h-5 w-px bg-border" />
         <NavLink to="/">Overview</NavLink>
         <NavLink to="/dashboard">Dashboard</NavLink>
+        <NavLink to="/operations">Operations</NavLink>
         <NavLink to="/logs">Logs</NavLink>
         <Link
           to="/dashboard"
