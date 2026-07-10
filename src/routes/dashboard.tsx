@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 import { ClusterViz } from "@/components/cluster-viz";
 import { FailureLab } from "@/components/failure-lab";
+import { KVOperations } from "@/components/kv-operations";
+import { ClusterStatusView } from "@/components/cluster-status";
 import { Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/dashboard")({
@@ -32,10 +34,28 @@ function Dashboard() {
             <div className="lg:col-span-2 space-y-6">
               <TopologyCard />
               <ReplicationTimeline />
+              <div className="card-elevated p-6">
+                <div className="mb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-display text-[15px] font-semibold tracking-tight">Quick Operations</h3>
+                      <p className="mt-1 text-[12px] text-muted-foreground">Test KV operations directly</p>
+                    </div>
+                    <Link
+                      to="/operations"
+                      className="text-[12px] font-medium text-primary hover:text-primary/80 transition-colors"
+                    >
+                      Full Console →
+                    </Link>
+                  </div>
+                </div>
+                <KVOperations />
+              </div>
             </div>
             <div className="space-y-6">
               <MetricsPanel />
               <ConsensusFeed />
+              <ClusterStatusView />
             </div>
           </div>
           <FailureLab />
