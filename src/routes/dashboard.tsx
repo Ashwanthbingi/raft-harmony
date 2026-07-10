@@ -38,6 +38,7 @@ function Dashboard() {
               <ConsensusFeed />
             </div>
           </div>
+          <FailureLab />
           <div className="grid gap-6 lg:grid-cols-3">
             <NodeCards />
           </div>
