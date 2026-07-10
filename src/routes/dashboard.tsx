@@ -6,6 +6,7 @@ import {
   LayoutGrid, Server, ScrollText, Settings, GitBranch, Gauge, PanelLeft, Command,
 } from "lucide-react";
 import { ClusterViz } from "@/components/cluster-viz";
+import { FailureLab } from "@/components/failure-lab";
 import { Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/dashboard")({
@@ -37,6 +38,7 @@ function Dashboard() {
               <ConsensusFeed />
             </div>
           </div>
+          <FailureLab />
           <div className="grid gap-6 lg:grid-cols-3">
             <NodeCards />
           </div>
