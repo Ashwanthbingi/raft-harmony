@@ -3,7 +3,7 @@
 **Status:** Implementation Complete ✓  
 **Date:** 2026-07-10  
 **Files Modified:** 4 core files  
-**Total Lines Added:** ~400 lines  
+**Total Lines Added:** \~400 lines  
 
 ---
 
@@ -18,19 +18,19 @@ This document describes the complete implementation of **Raft snapshots** for lo
 ### Problem: Unbounded Log Growth
 - **Without snapshots:** Log grows indefinitely; never discarded
 - **Impact:**
-  - New nodes must replay entire log (slow recovery)
-  - Disk space grows without bound
-  - Replication lag for new nodes increases
-  - No way to bootstrap new clusters efficiently
+    - New nodes must replay entire log (slow recovery)
+    - Disk space grows without bound
+    - Replication lag for new nodes increases
+    - No way to bootstrap new clusters efficiently
 
 ### Solution: Snapshots
 - **Snapshot:** Serialized state of application (KV store) at a specific log index
 - **Benefit:** Discard all log entries up to that index; new nodes recover in seconds
 - **Mechanism:**
-  1. When log exceeds threshold (10 entries), generate snapshot
-  2. Persist snapshot with lastIncludedIndex and lastIncludedTerm
-  3. Discard log entries before snapshot
-  4. When new node joins, leader sends snapshot first, then recent log
+    1. When log exceeds threshold (10 entries), generate snapshot
+    2. Persist snapshot with lastIncludedIndex and lastIncludedTerm
+    3. Discard log entries before snapshot
+    4. When new node joins, leader sends snapshot first, then recent log
 
 ---
 
@@ -38,7 +38,7 @@ This document describes the complete implementation of **Raft snapshots** for lo
 
 ### Snapshot Data Structure
 
-```go
+````go
 type Snapshot struct {
     LastIncludedIndex int32  // Last log index included in snapshot
     LastIncludedTerm  int32  // Term of that index
@@ -431,38 +431,38 @@ if rf.lastApplied%10 == 0 && rf.state == Leader {
 ### Current Limitations
 
 1. **No Chunked Snapshot Transfer**
-   - Current: Entire snapshot sent in one RPC
-   - Problem: Large snapshots might exceed network MTU
-   - Future: Split snapshots into chunks, transfer with offset
+    - Current: Entire snapshot sent in one RPC
+    - Problem: Large snapshots might exceed network MTU
+    - Future: Split snapshots into chunks, transfer with offset
 
 2. **No Application Snapshot Callback**
-   - Current: Application doesn't know when to generate snapshots
-   - Problem: KV store not persisted as snapshot
-   - Future: Add callback: `OnSnapshot(lastIndex int32) []byte`
+    - Current: Application doesn't know when to generate snapshots
+    - Problem: KV store not persisted as snapshot
+    - Future: Add callback: `OnSnapshot(lastIndex int32) []byte`
 
 3. **No Snapshot Verification**
-   - Current: No checksums or corruption detection
-   - Problem: Corrupted snapshot silently accepted
-   - Future: Add CRC32 or SHA256 of snapshot data
+    - Current: No checksums or corruption detection
+    - Problem: Corrupted snapshot silently accepted
+    - Future: Add CRC32 or SHA256 of snapshot data
 
 4. **No Incremental Snapshots**
-   - Current: Full snapshot every time
-   - Problem: Inefficient for large state machines
-   - Future: Delta compression, incremental state updates
+    - Current: Full snapshot every time
+    - Problem: Inefficient for large state machines
+    - Future: Delta compression, incremental state updates
 
 ### Performance Optimizations
 
 1. **Async Snapshot Generation**
-   - Current: Synchronous during applyLogs()
-   - Future: Background goroutine to generate snapshots
+    - Current: Synchronous during applyLogs()
+    - Future: Background goroutine to generate snapshots
 
 2. **Snapshot Caching**
-   - Current: Loaded from disk every time
-   - Future: Keep latest snapshot in memory
+    - Current: Loaded from disk every time
+    - Future: Keep latest snapshot in memory
 
 3. **Parallel Snapshot Transfer**
-   - Current: Sequential to one peer at a time
-   - Future: Send snapshots to multiple followers in parallel
+    - Current: Sequential to one peer at a time
+    - Future: Send snapshots to multiple followers in parallel
 
 ---
 
@@ -548,3 +548,4 @@ go run cmd/node/main.go -id 1 -http_addr :8001 -raft_addr :9001 -peers localhost
 
 **Next Step:** Implement InstallSnapshot RPC handler + application integration (Task 4: Tests)
 
+````
