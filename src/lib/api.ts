@@ -29,7 +29,33 @@ export interface ClusterStatus {
   lastUpdate: number;
 }
 
-// Default cluster nodes - can be changed
+// Parse VITE_RAFT_NODES environment variable to override default nodes
+// Format: "http://host1:port1,http://host2:port2,http://host3:port3"
+function parseRaftNodesEnv(): ClusterNode[] {
+  const envNodes = import.meta.env.VITE_RAFT_NODES;
+  if (!envNodes) {
+    return DEFAULT_NODES;
+  }
+
+  try {
+    return envNodes.split(',').map((url, index) => {
+      const urlObj = new URL(url.trim());
+      return {
+        id: `node${index + 1}`,
+        address: urlObj.hostname,
+        httpPort: parseInt(urlObj.port || '8001', 10),
+        state: index === 0 ? 'Leader' : 'Follower',
+        term: 0,
+        isLeader: index === 0,
+      };
+    });
+  } catch {
+    console.warn('Failed to parse VITE_RAFT_NODES, using defaults');
+    return DEFAULT_NODES;
+  }
+}
+
+// Default cluster nodes - can be changed via VITE_RAFT_NODES env var
 export const DEFAULT_NODES: ClusterNode[] = [
   {
     id: 'node1',
@@ -61,7 +87,7 @@ class RaftAPI {
   private nodes: ClusterNode[];
   private leaderIndex: number = 0;
 
-  constructor(nodes: ClusterNode[] = DEFAULT_NODES) {
+  constructor(nodes: ClusterNode[] = parseRaftNodesEnv()) {
     this.nodes = nodes;
   }
 

@@ -12,4 +12,12 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  nitro: {
+    // Override the Nitro preset to use node-server instead of the default Cloudflare Workers.
+    // This produces a plain Node.js server that can be containerized and deployed with Docker.
+    // Output: .output/server/index.mjs (Node server entry point)
+    presets: ["node-server"],
+    // Node server listens on port 3000 by default
+    outDir: ".output",
+  },
 });
