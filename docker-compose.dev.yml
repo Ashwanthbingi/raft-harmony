@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # Development Node 1
+  node1-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: raft-node-1-dev
+    hostname: node1
+    ports:
+      - "8001:8000"  # HTTP API
+      - "9001:9000"  # Raft gRPC
+    environment:
+      LOG_LEVEL: DEBUG
+      DATA_DIR: /build/data
+    volumes:
+      - .:/build
+      - node1_dev_data:/build/data
+    command:
+      - ./raft-node
+      - -id=1
+      - -http_addr=:8000
+      - -raft_addr=:9000
+      - -peers=node2:9000,node3:9000
+    networks:
+      - raft-network-dev
+    restart: unless-stopped
+    depends_on:
+      - node2-dev
+      - node3-dev
+
+  # Development Node 2
+  node2-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: raft-node-2-dev
+    hostname: node2
+    ports:
+      - "8002:8000"  # HTTP API
+      - "9002:9000"  # Raft gRPC
+    environment:
+      LOG_LEVEL: DEBUG
+      DATA_DIR: /build/data
+    volumes:
+      - .:/build
+      - node2_dev_data:/build/data
+    command:
+      - ./raft-node
+      - -id=2
+      - -http_addr=:8000
+      - -raft_addr=:9000
+      - -peers=node1:9000,node3:9000
+    networks:
+      - raft-network-dev
+    restart: unless-stopped
+
+  # Development Node 3
+  node3-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: raft-node-3-dev
+    hostname: node3
+    ports:
+      - "8003:8000"  # HTTP API
+      - "9003:9000"  # Raft gRPC
+    environment:
+      LOG_LEVEL: DEBUG
+      DATA_DIR: /build/data
+    volumes:
+      - .:/build
+      - node3_dev_data:/build/data
+    command:
+      - ./raft-node
+      - -id=3
+      - -http_addr=:8000
+      - -raft_addr=:9000
+      - -peers=node1:9000,node2:9000
+    networks:
+      - raft-network-dev
+    restart: unless-stopped
+
+volumes:
+  node1_dev_data:
+    driver: local
+  node2_dev_data:
+    driver: local
+  node3_dev_data:
+    driver: local
+
+networks:
+  raft-network-dev:
+    driver: bridge

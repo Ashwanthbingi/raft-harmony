@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # Node 1 - Initial Leader
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: raft-node-1
+    hostname: node1
+    ports:
+      - "8001:8000"  # HTTP API
+      - "9001:9000"  # Raft gRPC
+    environment:
+      LOG_LEVEL: INFO
+      DATA_DIR: /app/data
+    volumes:
+      - node1_data:/app/data
+    command:
+      - ./raft-node
+      - -id=1
+      - -http_addr=:8000
+      - -raft_addr=:9000
+      - -peers=node2:9000,node3:9000
+    networks:
+      - raft-network
+    restart: unless-stopped
+    depends_on:
+      - node2
+      - node3
+
+  # Node 2 - Follower
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: raft-node-2
+    hostname: node2
+    ports:
+      - "8002:8000"  # HTTP API
+      - "9002:9000"  # Raft gRPC
+    environment:
+      LOG_LEVEL: INFO
+      DATA_DIR: /app/data
+    volumes:
+      - node2_data:/app/data
+    command:
+      - ./raft-node
+      - -id=2
+      - -http_addr=:8000
+      - -raft_addr=:9000
+      - -peers=node1:9000,node3:9000
+    networks:
+      - raft-network
+    restart: unless-stopped
+
+  # Node 3 - Follower
+  node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: raft-node-3
+    hostname: node3
+    ports:
+      - "8003:8000"  # HTTP API
+      - "9003:9000"  # Raft gRPC
+    environment:
+      LOG_LEVEL: INFO
+      DATA_DIR: /app/data
+    volumes:
+      - node3_data:/app/data
+    command:
+      - ./raft-node
+      - -id=3
+      - -http_addr=:8000
+      - -raft_addr=:9000
+      - -peers=node1:9000,node2:9000
+    networks:
+      - raft-network
+    restart: unless-stopped
+
+volumes:
+  node1_data:
+    driver: local
+  node2_data:
+    driver: local
+  node3_data:
+    driver: local
+
+networks:
+  raft-network:
+    driver: bridge

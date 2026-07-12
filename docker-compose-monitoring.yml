@@ -1,0 +1,118 @@
+# Extended docker-compose.yml with Prometheus and Grafana
+version: '3.8'
+
+services:
+  node1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+      - "9001:9000"
+    environment:
+      - NODE_ID=1
+      - PEERS=node2:9000,node3:9000
+    volumes:
+      - node1_data:/app/data
+    networks:
+      - raft-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  node2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+      - "9002:9000"
+    environment:
+      - NODE_ID=2
+      - PEERS=node1:9000,node3:9000
+    volumes:
+      - node2_data:/app/data
+    networks:
+      - raft-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - node1
+
+  node3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
+      - "9003:9000"
+    environment:
+      - NODE_ID=3
+      - PEERS=node1:9000,node2:9000
+    volumes:
+      - node3_data:/app/data
+    networks:
+      - raft-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - node1
+
+  # Prometheus: Time-series database for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-rules.yml:/etc/prometheus/rules/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    networks:
+      - raft-network
+    depends_on:
+      - node1
+      - node2
+      - node3
+
+  # Grafana: Visualization and dashboarding
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - raft-network
+    depends_on:
+      - prometheus
+
+volumes:
+  node1_data:
+  node2_data:
+  node3_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  raft-network:
+    driver: bridge

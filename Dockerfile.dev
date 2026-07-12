@@ -1,0 +1,29 @@
+# Development Dockerfile with hot-reload capability
+FROM golang:1.25-alpine
+
+WORKDIR /build
+
+# Install development tools
+RUN apk add --no-cache \
+    git \
+    ca-certificates \
+    build-base \
+    bash
+
+# Copy go.mod and go.sum
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -o raft-node ./cmd/node/main.go
+
+# Run the application
+EXPOSE 8000 9000
+
+ENTRYPOINT ["./raft-node"]
+CMD ["-id", "1", "-http_addr", ":8000", "-raft_addr", ":9000"]

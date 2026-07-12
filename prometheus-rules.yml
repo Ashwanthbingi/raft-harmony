@@ -1,0 +1,187 @@
+groups:
+  - name: raft-cluster-health
+    interval: 30s
+    rules:
+      # Cluster stability alerts
+      - alert: NoLeaderElected
+        expr: count(raft_leader_id > 0) == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: raft
+        annotations:
+          summary: "No leader elected in Raft cluster"
+          description: "No leader has been elected. Cluster is not operational."
+          runbook: "https://example.com/runbooks/no-leader"
+
+      - alert: MultipleLeaders
+        expr: count(raft_leader_id > 0) > 1
+        for: 1m
+        labels:
+          severity: critical
+          component: raft
+        annotations:
+          summary: "Multiple leaders detected (split brain)"
+          description: "{{ $value }} leaders detected - cluster is inconsistent!"
+          runbook: "https://example.com/runbooks/split-brain"
+
+      - alert: FrequentElections
+        expr: rate(raft_elections_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: raft
+        annotations:
+          summary: "Frequent leader elections ({{ $value }}/min)"
+          description: "Elections occurring at {{ $value }} per minute - network may be unstable"
+
+  - name: raft-replication
+    interval: 30s
+    rules:
+      - alert: HighReplicationLag
+        expr: raft_replication_lag > 100
+        for: 2m
+        labels:
+          severity: warning
+          component: replication
+        annotations:
+          summary: "High replication lag for {{ $labels.peer_id }}"
+          description: "Peer {{ $labels.peer_id }} is {{ $value }} entries behind"
+
+      - alert: ReplicationStalled
+        expr: rate(raft_log_entries_replicated_total[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: replication
+        annotations:
+          summary: "Replication stalled for peer {{ $labels.peer_id }}"
+          description: "No log entries replicated to {{ $labels.peer_id }} in 5 minutes"
+
+      - alert: AppendEntriesFailureRate
+        expr: |
+          (rate(raft_append_entries_failed_total[5m]) /
+           rate(raft_append_entries_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: replication
+        annotations:
+          summary: "High AppendEntries failure rate ({{ $value | humanizePercentage }})"
+          description: "More than 5% of AppendEntries RPCs are failing"
+
+      - alert: HighRpcLatency
+        expr: |
+          histogram_quantile(0.95, raft_append_entries_latency_seconds_bucket) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High RPC latency (p95: {{ $value }}s)"
+          description: "AppendEntries RPC latency p95 > 1 second"
+
+  - name: raft-snapshots
+    interval: 30s
+    rules:
+      - alert: LargeLogRequiringSnapshot
+        expr: raft_log_size > 1000000
+        for: 10m
+        labels:
+          severity: info
+          component: snapshots
+        annotations:
+          summary: "Log size exceeds 1M entries ({{ $value | humanize }})"
+          description: "Consider generating a snapshot to compact the log"
+
+      - alert: SnapshotGenerationFailure
+        expr: |
+          increase(raft_snapshots_generated_total[1h]) == 0 and
+          raft_log_size > 500000
+        for: 1h
+        labels:
+          severity: warning
+          component: snapshots
+        annotations:
+          summary: "No snapshots generated in 1 hour despite large log"
+          description: "Log has {{ $value }} entries but no snapshots are being generated"
+
+      - alert: HighSnapshotLatency
+        expr: |
+          histogram_quantile(0.95, raft_snapshot_duration_seconds_bucket) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: snapshots
+        annotations:
+          summary: "Slow snapshot generation (p95: {{ $value }}s)"
+          description: "Snapshot generation is taking longer than 5 seconds"
+
+  - name: kv-store
+    interval: 30s
+    rules:
+      - alert: HighOperationLatency
+        expr: |
+          histogram_quantile(0.99, kv_operation_latency_seconds_bucket{operation="GET"}) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High KV GET latency (p99: {{ $value }}s)"
+          description: "GET operations are taking > 1 second at p99"
+
+      - alert: OperationErrors
+        expr: |
+          rate(kv_operations_failed_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "KV store operations failing (rate: {{ $value }}/sec)"
+          description: "KV store operations are encountering errors"
+
+      - alert: LowWriteThroughput
+        expr: |
+          rate(kv_operations_total{operation="SET"}[1m]) < 1
+        for: 10m
+        labels:
+          severity: info
+          component: application
+        annotations:
+          summary: "Low SET operation throughput ({{ $value }}/sec)"
+          description: "SET operations are running below 1 op/sec"
+
+  - name: cluster-general
+    interval: 30s
+    rules:
+      - alert: NodeDown
+        expr: up{job="raft-cluster"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cluster
+        annotations:
+          summary: "Raft node down: {{ $labels.instance }}"
+          description: "Node {{ $labels.instance }} is not responding to scrapes"
+
+      - alert: PrometheusScrapeFailing
+        expr: up{job="raft-cluster"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Prometheus cannot scrape {{ $labels.instance }}"
+          description: "Metrics collection has failed for {{ $labels.instance }}"
+
+      - alert: HighTermChanges
+        expr: rate(raft_term_changes_total[1h]) > 10
+        for: 10m
+        labels:
+          severity: warning
+          component: raft
+        annotations:
+          summary: "High term change rate ({{ $value }}/hour)"
+          description: "Cluster is experiencing frequent term changes - network may be unstable"

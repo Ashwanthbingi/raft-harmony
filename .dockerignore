@@ -1,0 +1,61 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build artifacts
+*.o
+*.a
+*.so
+.DS_Store
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+bin/
+obj/
+vendor/
+.mod
+.sum
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.project
+.classpath
+
+# OS
+Thumbs.db
+.env.local
+.env.*.local
+
+# Docker
+docker-compose.override.yml
+Dockerfile.test
+.dockerignore
+
+# Logs
+*.log
+logs/
+
+# Data (don't include in image)
+data/
+*.db
+
+# Node modules (if any)
+node_modules/
+
+# Test coverage
+coverage/
+*.out
+
+# Temporary files
+tmp/
+temp/
+*.tmp
