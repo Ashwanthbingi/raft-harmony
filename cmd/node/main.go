@@ -75,9 +75,31 @@ func main() {
 	// Expose metrics endpoint
 	http.Handle("/metrics", promhttp.Handler())
 
-	// Simple HTTP API for Client
-	// Simple HTTP API for Client
-	http.HandleFunc("/set", func(w http.ResponseWriter, r *http.Request) {
+	// CORS middleware wrapper
+	corsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Enable CORS for frontend access (supports both localhost and container network)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		// Handle preflight requests
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+	})
+
+	// Wrap set handler with CORS
+	originalSetHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		
 		var key, val string
 		// Try parsing JSON body first
 		if r.Method == http.MethodPost {
@@ -110,8 +132,19 @@ func main() {
 		}
 		fmt.Fprintf(w, "Submitted at index %d term %d", idx, term)
 	})
+	http.Handle("/set", originalSetHandler)
 
-	http.HandleFunc("/get", func(w http.ResponseWriter, r *http.Request) {
+	// Wrap get handler with CORS
+	originalGetHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		
 		key := r.URL.Query().Get("key")
 		val, ok := store.Get(key)
 		if !ok {
@@ -120,6 +153,7 @@ func main() {
 		}
 		fmt.Fprintf(w, "%s", val)
 	})
+	http.Handle("/get", originalGetHandler)
 
 	log.Printf("Starting HTTP server on %s", *httpAddr)
 	go func() {

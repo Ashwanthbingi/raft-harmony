@@ -1,4 +1,4 @@
-# Extended docker-compose.yml with Prometheus and Grafana
+# Extended docker-compose.yml with Prometheus, Grafana, and Frontend Dashboard
 version: '3.8'
 
 services:
@@ -66,6 +66,32 @@ services:
     depends_on:
       - node1
 
+  # Frontend Dashboard (TanStack Start + Nitro)
+  # Runs on port 8080, accessible via http://localhost:8080
+  # Provides UI for interacting with the Raft cluster
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: raft-frontend
+    hostname: frontend
+    ports:
+      - "8080:3000"  # Frontend on port 3000 (Nitro node-server default), mapped to 8080 on host
+    environment:
+      # Backend node addresses for frontend client-side API calls (browser)
+      # Using host-mapped ports (8001-8003) so the browser can reach them via localhost
+      VITE_RAFT_NODES: "http://localhost:8001,http://localhost:8002,http://localhost:8003"
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+    networks:
+      - raft-network
+    restart: unless-stopped
+    depends_on:
+      - node1
+      - node2
+      - node3
+
   # Prometheus: Time-series database for metrics
   prometheus:
     image: prom/prometheus:latest
@@ -91,7 +117,7 @@ services:
   grafana:
     image: grafana/grafana:latest
     ports:
-      - "3000:3000"
+      - "3001:3000"  # Changed from 3000 to 3001 to avoid conflict with frontend on 3000 (internally)
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_SECURITY_ADMIN_USER=admin
