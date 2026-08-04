@@ -44,8 +44,14 @@ servers:
 tags:
   - name: Key-Value Operations
     description: Store and retrieve data
+  - name: Range Queries
+    description: Efficiently query multiple keys by range, prefix, or list
+  - name: Batch Operations
+    description: Perform multiple SET/GET/DELETE operations in one request
   - name: Cluster Status
     description: Query cluster information
+  - name: Cluster Management
+    description: Add and remove nodes dynamically
   - name: Monitoring
     description: Prometheus metrics and health checks
 
@@ -292,6 +298,444 @@ paths:
         - lang: bash
           source: |
             curl -s http://localhost:8001/metrics | grep raft_is_leader
+
+  /range:
+    get:
+      tags:
+        - Range Queries
+      summary: Get keys in a range
+      description: |
+        Retrieve all key-value pairs where keys fall within the specified range [start, end).
+        
+        Useful for pagination, range scans, and ordered queries.
+        
+        **Example Use Cases:**
+        - Get scores between 1000-2000: /range?start=score:1000&end=score:2000
+        - Get entries after a timestamp: /range?start=2024-07-10T12:00:00
+      operationId: getRangeKeys
+      parameters:
+        - name: start
+          in: query
+          required: true
+          description: Starting key (inclusive)
+          schema:
+            type: string
+          example: "user:100"
+        - name: end
+          in: query
+          required: false
+          description: Ending key (exclusive). If omitted, no upper bound.
+          schema:
+            type: string
+          example: "user:200"
+      responses:
+        '200':
+          description: Keys in range retrieved successfully
+          content:
+            application/json:
+             schema:
+               type: object
+               properties:
+                 keys:
+                   type: object
+                   additionalProperties:
+                     type: string
+                 count:
+                   type: integer
+                 truncated:
+                   type: boolean
+                 range:
+                   type: object
+                   properties:
+                     start:
+                       type: string
+                     end:
+                       type: string
+        '400':
+          description: Missing required parameters
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl "http://localhost:8001/range?start=user:100&end=user:200"
+
+  /prefix:
+    get:
+      tags:
+        - Range Queries
+      summary: Get keys by prefix
+      description: |
+        Retrieve all key-value pairs that start with the specified prefix.
+        
+        Efficient for hierarchical key organization.
+        
+        **Example Use Cases:**
+        - Get all user settings: /prefix?prefix=user:settings:
+        - Get all config values: /prefix?prefix=config:
+        - Get all cache entries: /prefix?prefix=cache:session:
+      operationId: getPrefixKeys
+      parameters:
+        - name: prefix
+          in: query
+          required: true
+          description: Key prefix to match
+          schema:
+            type: string
+          example: "user:"
+      responses:
+        '200':
+          description: Keys with prefix retrieved successfully
+          content:
+            application/json:
+             schema:
+               type: object
+               properties:
+                 keys:
+                   type: object
+                   additionalProperties:
+                     type: string
+                 count:
+                   type: integer
+                 prefix:
+                   type: string
+                 truncated:
+                   type: boolean
+        '400':
+          description: Missing prefix parameter
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl "http://localhost:8001/prefix?prefix=user:"
+
+  /keys:
+    get:
+      tags:
+        - Range Queries
+      summary: List all keys with pagination
+      description: |
+        Retrieve all keys in the store with optional pagination.
+        
+        Keys are returned in sorted order.
+        
+        **Pagination:**
+        - Use limit and offset for efficient pagination
+        - Default limit: 100 keys per page
+        - Check hasMore field to determine if more keys exist
+      operationId: listKeys
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum keys to return (default 100)
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          required: false
+          description: Pagination offset (default 0)
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Keys listed successfully
+          content:
+            application/json:
+             schema:
+               type: object
+               properties:
+                 keys:
+                   type: array
+                   items:
+                     type: string
+                 count:
+                   type: integer
+                 total:
+                   type: integer
+                 offset:
+                   type: integer
+                 limit:
+                   type: integer
+                 truncated:
+                   type: boolean
+                 hasMore:
+                   type: boolean
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl "http://localhost:8001/keys?limit=50&offset=0"
+
+  /batch/get:
+    post:
+      tags:
+        - Batch Operations
+      summary: Get multiple keys at once
+      description: |
+        Retrieve values for multiple keys in a single request.
+        
+        More efficient than individual GET requests for retrieving many keys.
+        
+        **Returns:**
+        - Only keys that exist in the store
+        - Use the "found" and "missing" counts to verify completeness
+      operationId: batchGet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+             type: object
+             required:
+               - keys
+             properties:
+               keys:
+                 type: array
+                 items:
+                   type: string
+                 description: List of keys to retrieve
+             example:
+               keys: ["user:1", "user:2", "user:3"]
+      responses:
+        '200':
+          description: Batch GET completed
+          content:
+            application/json:
+             schema:
+               type: object
+               properties:
+                 results:
+                   type: object
+                   additionalProperties:
+                     type: string
+                 count:
+                   type: integer
+                 found:
+                   type: integer
+                 missing:
+                   type: integer
+        '400':
+          description: Invalid request or empty keys list
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X POST http://localhost:8001/batch/get \
+             -H "Content-Type: application/json" \
+             -d '{"keys": ["user:1", "user:2", "user:3"]}'
+
+  /batch/set:
+    post:
+      tags:
+        - Batch Operations
+      summary: Set multiple key-value pairs
+      description: |
+        Set multiple key-value pairs in the distributed store.
+        
+        Each SET operation is individually replicated via Raft.
+        Batch is not atomic (partial success possible).
+        
+        **Note:** Only available on the leader node.
+      operationId: batchSet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+             type: object
+             required:
+               - operations
+             properties:
+               operations:
+                 type: array
+                 items:
+                   type: object
+                   required:
+                     - key
+                     - value
+                   properties:
+                     key:
+                       type: string
+                     value:
+                       type: string
+             example:
+               operations:
+                 - key: "user:1"
+                   value: "Alice"
+                 - key: "user:2"
+                   value: "Bob"
+      responses:
+        '200':
+          description: Batch SET completed
+          content:
+            application/json:
+             schema:
+               type: object
+               properties:
+                 results:
+                   type: object
+                   additionalProperties:
+                     type: object
+                     properties:
+                       success:
+                         type: boolean
+                       index:
+                         type: integer
+                       term:
+                         type: integer
+                       error:
+                         type: string
+                 total:
+                   type: integer
+                 success:
+                   type: integer
+                 failed:
+                   type: integer
+        '400':
+          description: Invalid request or empty operations
+        '500':
+          description: Only leader can perform SET operations
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X POST http://localhost:8001/batch/set \
+             -H "Content-Type: application/json" \
+             -d '{
+               "operations": [
+                 {"key": "user:1", "value": "Alice"},
+                 {"key": "user:2", "value": "Bob"}
+               ]
+             }'
+
+  /batch/delete:
+    post:
+      tags:
+        - Batch Operations
+      summary: Delete multiple keys
+      description: |
+        Delete multiple keys from the distributed store.
+        
+        Each DELETE operation is individually replicated via Raft.
+        
+        **Note:** Only available on the leader node.
+      operationId: batchDelete
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+             type: object
+             required:
+               - keys
+             properties:
+               keys:
+                 type: array
+                 items:
+                   type: string
+             example:
+               keys: ["user:1", "user:2", "user:3"]
+      responses:
+        '200':
+          description: Batch DELETE completed
+          content:
+            application/json:
+             schema:
+               type: object
+               properties:
+                 results:
+                   type: object
+                   additionalProperties:
+                     type: object
+                     properties:
+                       success:
+                         type: boolean
+                       index:
+                         type: integer
+                       term:
+                         type: integer
+                 total:
+                   type: integer
+                 success:
+                   type: integer
+                 failed:
+                   type: integer
+        '400':
+          description: Invalid request or empty keys
+        '500':
+          description: Only leader can perform DELETE operations
+
+  /add-peer:
+    post:
+      tags:
+        - Cluster Management
+      summary: Add a peer to the cluster
+      description: |
+        Add a new node to the Raft cluster.
+        
+        **Note:** Only the leader can add peers.
+      operationId: addPeer
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: Node ID of the new peer
+          schema:
+            type: string
+          example: "node4"
+        - name: addr
+          in: query
+          required: true
+          description: Network address of the new peer (host:port)
+          schema:
+            type: string
+          example: "10.0.4.10:9000"
+      responses:
+        '200':
+          description: Peer added successfully
+        '400':
+          description: Missing id or addr parameter
+        '500':
+          description: Only leader can add peers
+
+  /remove-peer:
+    post:
+      tags:
+        - Cluster Management
+      summary: Remove a peer from the cluster
+      description: |
+        Remove a node from the Raft cluster.
+        
+        **Note:** Only the leader can remove peers.
+      operationId: removePeer
+      parameters:
+        - name: id
+          in: query
+          required: true
+          description: Node ID to remove
+          schema:
+            type: string
+          example: "node4"
+      responses:
+        '200':
+          description: Peer removed successfully
+        '400':
+          description: Missing id parameter
+        '500':
+          description: Only leader can remove peers
+
+  /peers:
+    get:
+      tags:
+        - Cluster Management
+      summary: Get cluster membership
+      description: |
+        Retrieve the current cluster membership including peer addresses and states.
+      operationId: getPeers
+      responses:
+        '200':
+          description: Cluster membership retrieved
+          content:
+            application/json:
+             schema:
+               type: object
 
 components:
   schemas:
