@@ -89,7 +89,7 @@ export function ClusterStatusView() {
       <div className="divide-y divide-border">
         {status.nodes.map((node, i) => {
           const isLeader = node.isLeader;
-          const isUp = true; // Simplified for now
+          const isUp = (node as any).isUp ?? true; // Derived from API health check when available
 
           return (
             <motion.div

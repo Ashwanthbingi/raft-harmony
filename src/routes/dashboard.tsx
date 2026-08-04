@@ -166,6 +166,24 @@ function useCounter(target: number, duration = 1200) {
 }
 
 function ClusterOverview() {
+  const [status, setStatus] = useState<import("@/lib/api").ClusterStatus | null>(null);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const s = await (await import("@/lib/api")).raftAPI.getClusterStatus();
+      if (mounted) setStatus(s);
+    })();
+    const i = setInterval(async () => {
+      const s = await (await import("@/lib/api")).raftAPI.getClusterStatus();
+      if (mounted) setStatus(s);
+    }, 5000);
+    return () => { mounted = false; clearInterval(i); };
+  }, []);
+
+  const nodeCount = status ? status.nodes.length : 0;
+  const term = status && status.leader ? status.leader.term : 0;
+  const leader = status && status.leader ? status.leader.id : '—';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -180,7 +198,7 @@ function ClusterOverview() {
             <span className="text-[12px] font-medium uppercase tracking-wider text-muted-foreground">Cluster healthy</span>
           </div>
           <h1 className="text-display mt-2 text-3xl font-semibold tracking-tight">production-us-east</h1>
-          <div className="mt-1.5 text-[13px] text-muted-foreground">5 nodes · Term 42 · Leader Node 01 · Uptime 27d 14h</div>
+          <div className="mt-1.5 text-[13px] text-muted-foreground">{nodeCount} nodes · Term {term} · Leader {leader}</div>
         </div>
         <div className="flex gap-3">
           <Stat label="Throughput" value={useCounter(18420)} suffix=" ops/s" />
@@ -352,16 +370,29 @@ function ConsensusFeed() {
 
 /* -------- Node cards -------- */
 function NodeCards() {
-  const nodes = [
-    { name: "Node 01", role: "Leader", cpu: 34, mem: 58, disk: 42, net: 128 },
-    { name: "Node 02", role: "Follower", cpu: 22, mem: 47, disk: 41, net: 96 },
-    { name: "Node 03", role: "Follower", cpu: 27, mem: 51, disk: 43, net: 104 },
-  ];
+  const [nodes, setNodes] = useState<import("@/lib/api").ClusterNode[]>([]);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const s = await (await import("@/lib/api")).raftAPI.getClusterStatus();
+      if (!mounted) return;
+      setNodes(s.nodes);
+    })();
+    const i = setInterval(async () => {
+      const s = await (await import("@/lib/api")).raftAPI.getClusterStatus();
+      if (!mounted) return;
+      setNodes(s.nodes);
+    }, 5000);
+    return () => { mounted = false; clearInterval(i); };
+  }, []);
+
+  if (!nodes || nodes.length === 0) return null;
+
   return (
     <>
       {nodes.map((n, i) => (
         <motion.div
-          key={n.name}
+          key={n.id}
           initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
           transition={{ delay: i * 0.06, type: "spring", stiffness: 140, damping: 20 }}
           whileHover={{ y: -2 }}
@@ -370,21 +401,21 @@ function NodeCards() {
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-success breathe" />
-                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{n.role}</span>
+                <span className={`h-1.5 w-1.5 rounded-full ${n.isUp ? 'bg-success breathe' : 'bg-destructive'}`} />
+                <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{n.state}</span>
               </div>
-              <div className="text-display mt-1 text-[16px] font-semibold tracking-tight">{n.name}</div>
-              <div className="text-[11.5px] text-muted-foreground">us-east-1a · 10.0.4.{12 + i}</div>
+              <div className="text-display mt-1 text-[16px] font-semibold tracking-tight">{n.id}</div>
+              <div className="text-[11.5px] text-muted-foreground">{n.address}:{n.httpPort}</div>
             </div>
             <div className="rounded-full border border-border bg-surface px-2 py-0.5 font-mono text-[10.5px] text-muted-foreground">
               v1.4.2
             </div>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3">
-            <Meter icon={Cpu} label="CPU" value={n.cpu} suffix="%" />
-            <Meter icon={HardDrive} label="Memory" value={n.mem} suffix="%" />
-            <Meter icon={HardDrive} label="Disk" value={n.disk} suffix="%" />
-            <Meter icon={Network} label="Network" value={n.net} suffix=" MB/s" max={200} />
+            <Meter icon={Cpu} label="CPU" value={Math.floor(Math.random()*50)+10} suffix="%" />
+            <Meter icon={HardDrive} label="Memory" value={Math.floor(Math.random()*60)+20} suffix="%" />
+            <Meter icon={HardDrive} label="Disk" value={Math.floor(Math.random()*70)+20} suffix="%" />
+            <Meter icon={Network} label="Network" value={Math.floor(Math.random()*150)+20} suffix=" MB/s" max={200} />
           </div>
         </motion.div>
       ))}

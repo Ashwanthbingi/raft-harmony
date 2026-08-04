@@ -8,6 +8,7 @@ export interface ClusterNode {
   state: 'Leader' | 'Follower' | 'Candidate';
   term: number;
   isLeader: boolean;
+  isUp?: boolean;
 }
 
 export interface SetResponse {
@@ -29,8 +30,8 @@ export interface ClusterStatus {
   lastUpdate: number;
 }
 
-// Default cluster nodes - can be changed
-export const DEFAULT_NODES: ClusterNode[] = [
+// Default cluster nodes - can be changed or provided via VITE_RAFT_NODES env var
+const DEFAULT_NODES: ClusterNode[] = [
   {
     id: 'node1',
     address: 'localhost',
@@ -57,11 +58,32 @@ export const DEFAULT_NODES: ClusterNode[] = [
   },
 ];
 
+function parseEnvNodes(): ClusterNode[] {
+  try {
+    const raw = (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env.VITE_RAFT_NODES) || '';
+    if (!raw) return DEFAULT_NODES;
+    const parts = raw.split(',').map((s: string) => s.trim()).filter(Boolean);
+    return parts.map((p: string, i: number) => {
+      const [host, port] = p.split(":");
+      return {
+        id: `node${i + 1}`,
+        address: host || 'localhost',
+        httpPort: port ? parseInt(port, 10) : 8001 + i,
+        state: 'Follower' as const,
+        term: 0,
+        isLeader: i === 0,
+      };
+    });
+  } catch (e) {
+    return DEFAULT_NODES;
+  }
+}
+
 class RaftAPI {
   private nodes: ClusterNode[];
   private leaderIndex: number = 0;
 
-  constructor(nodes: ClusterNode[] = DEFAULT_NODES) {
+  constructor(nodes: ClusterNode[] = parseEnvNodes()) {
     this.nodes = nodes;
   }
 
@@ -135,31 +157,43 @@ class RaftAPI {
     }
   }
 
-  async checkNodeStatus(nodeId: string): Promise<boolean> {
+  async checkNodeStatus(nodeId: string): Promise<{ isUp: boolean; info?: any }> {
     try {
       const baseURL = this.getBaseURL(nodeId);
-      const response = await fetch(`${baseURL}/get?key=__healthcheck__`, {
-        method: 'GET',
-      });
-      return true; // If we can reach the node, it's up
+      const response = await fetch(`${baseURL}/health`);
+      if (!response.ok) return { isUp: false };
+      const data = await response.json().catch(() => null);
+      return { isUp: true, info: data };
     } catch {
-      return false;
+      return { isUp: false };
     }
   }
 
   async getClusterStatus(): Promise<ClusterStatus> {
     const nodes = [...this.nodes];
     const statusPromises = nodes.map(async (node) => {
-      const isUp = await this.checkNodeStatus(node.id);
-      return { ...node, isUp };
+      const res = await this.checkNodeStatus(node.id);
+      const updated: ClusterNode = { ...node };
+      if (res.isUp && res.info) {
+        // Try to derive authoritative info from /health
+        const info = res.info as any;
+        if (typeof info.isLeader === 'boolean') {
+          updated.isLeader = info.isLeader;
+        }
+        if (typeof info.currentTerm === 'number') {
+          updated.term = info.currentTerm;
+        }
+        // address/httpPort unchanged here
+      }
+      return { ...updated, isUp: res.isUp } as any;
     });
 
     const results = await Promise.all(statusPromises);
-    const leader = results.find(n => n.isLeader && n.isUp) || results[0];
+    const leader = results.find((n: any) => n.isLeader && n.isUp) || results[0];
 
     return {
-      nodes: results,
-      leader: leader || null,
+      nodes: results as ClusterNode[],
+      leader: (leader as ClusterNode) || null,
       lastUpdate: Date.now(),
     };
   }
