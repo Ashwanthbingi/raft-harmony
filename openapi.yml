@@ -1,0 +1,415 @@
+openapi: 3.0.0
+info:
+  title: Distributed Raft Key-Value Store API
+  description: |
+    A fault-tolerant, strongly consistent key-value store implemented using the Raft consensus algorithm.
+    The API provides operations for setting and getting values in a distributed cluster while maintaining
+    data consistency across node failures.
+    
+    ## Key Features
+    - **Strong Consistency**: All reads and writes are linearizable
+    - **Fault Tolerance**: Survives up to (N-1)/2 node failures in an N-node cluster
+    - **Automatic Failover**: Leader election ensures continued availability
+    - **No Data Loss**: All committed data persists across crashes
+    
+    ## Cluster Information
+    - **Leader-based Model**: Only the leader accepts writes
+    - **Replication**: Data is replicated to followers with majority-based commitment
+    - **Raft Consensus**: Custom gRPC-based Raft implementation
+    - **Monitoring**: Prometheus metrics exposed for cluster health monitoring
+    
+    ## Authentication
+    Currently, no authentication is implemented. All endpoints are publicly accessible.
+    For production deployments, implement TLS and authentication layers.
+  version: 1.0.0
+  contact:
+    name: Distributed KV Store Team
+    url: https://github.com/Ashwanthbingi/raft-harmony
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:8001
+    description: Local development (Node 1)
+  - url: http://localhost:8002
+    description: Local development (Node 2)
+  - url: http://localhost:8003
+    description: Local development (Node 3)
+  - url: http://node1:8000
+    description: Docker Compose (Node 1)
+  - url: http://node2:8000
+    description: Docker Compose (Node 2)
+  - url: http://node3:8000
+    description: Docker Compose (Node 3)
+
+tags:
+  - name: Key-Value Operations
+    description: Store and retrieve data
+  - name: Cluster Status
+    description: Query cluster information
+  - name: Monitoring
+    description: Prometheus metrics and health checks
+
+paths:
+  /set:
+    post:
+      tags:
+        - Key-Value Operations
+      summary: Set a key-value pair
+      description: |
+        Store or update a key-value pair in the distributed store.
+        
+        The request is processed by the **leader node only**. If sent to a follower, 
+        the follower will redirect or reject with a message indicating the current leader.
+        
+        The operation is completed when:
+        1. The entry is appended to the leader's log
+        2. The leader replicates it to followers
+        3. A majority of nodes acknowledge the entry
+        4. The leader commits and applies the entry to the state machine
+        
+        **Consistency Guarantee**: Once the operation returns successfully, all subsequent
+        reads will see the written value (strong consistency/linearizability).
+      operationId: setValue
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - key
+                - value
+              properties:
+                key:
+                  type: string
+                  description: The key to store
+                  example: "username"
+                  minLength: 1
+                  maxLength: 256
+                value:
+                  type: string
+                  description: The value to store
+                  example: "alice"
+                  minLength: 0
+                  maxLength: 1048576
+          application/json:
+            schema:
+              type: object
+              required:
+                - key
+                - value
+              properties:
+                key:
+                  type: string
+                  description: The key to store
+                  example: "username"
+                value:
+                  type: string
+                  description: The value to store
+                  example: "alice"
+      parameters:
+        - name: key
+          in: query
+          description: The key to store
+          schema:
+            type: string
+          example: "username"
+        - name: value
+          in: query
+          description: The value to store
+          schema:
+            type: string
+          example: "alice"
+      responses:
+        '200':
+          description: Value successfully submitted to the Raft log
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Submitted at index 42 term 3"
+        '400':
+          description: Missing required parameters (key or value)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Missing key/value"
+        '500':
+          description: |
+            Node is not the leader or server error.
+            Try another node or wait for leader election to complete.
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Not Leader. Leader is node2"
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl -X POST "http://localhost:8001/set?key=username&value=alice"
+        - lang: javascript
+          source: |
+            fetch('http://localhost:8001/set', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ key: 'username', value: 'alice' })
+            })
+            .then(r => r.text())
+            .then(console.log)
+
+  /get:
+    get:
+      tags:
+        - Key-Value Operations
+      summary: Get a value by key
+      description: |
+        Retrieve the value associated with a key from the state machine.
+        
+        This operation reads from the **applied state machine**. The read reflects
+        all values that have been committed by the Raft cluster. There are no consistency
+        guarantees about this specific node's view (use /health for leader verification).
+        
+        **Data Freshness**: 
+        - On the leader: Current data (up to last applied index)
+        - On a follower: May lag behind the leader by up to one replication round
+        
+        For strict linearizable reads, send requests to the leader node only.
+      operationId: getValue
+      parameters:
+        - name: key
+          in: query
+          required: true
+          description: The key to retrieve
+          schema:
+            type: string
+          example: "username"
+      responses:
+        '200':
+          description: Key found; value returned
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "alice"
+        '404':
+          description: Key not found in the state machine
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Not found"
+        '400':
+          description: Missing required key parameter
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Missing key parameter"
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl "http://localhost:8001/get?key=username"
+        - lang: javascript
+          source: |
+            fetch('http://localhost:8001/get?key=username')
+              .then(r => r.text())
+              .then(console.log)
+
+  /health:
+    get:
+      tags:
+        - Cluster Status
+      summary: Health check endpoint
+      description: |
+        Check if the node is running and responsive.
+        
+        Currently a simple health check. For Raft-specific state, see /metrics.
+        
+        **Note**: This endpoint does not verify cluster membership or leader status.
+        Use the frontend dashboard to see the full cluster view.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Node is alive
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "ok"
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl http://localhost:8001/health
+
+  /metrics:
+    get:
+      tags:
+        - Monitoring
+      summary: Prometheus metrics endpoint
+      description: |
+        Returns metrics in Prometheus text format for monitoring cluster health.
+        
+        **Available Metrics:**
+        - `raft_current_term`: Current Raft term
+        - `raft_is_leader`: 1 if node is leader, 0 if follower
+        - `raft_log_size`: Number of entries in the Raft log
+        - `raft_commit_index`: Index of highest committed entry
+        - `raft_last_applied`: Index of highest applied entry
+        - `raft_last_included_index`: Index of last included in snapshot
+        - `raft_match_index_<peer>`: Replication progress for peer
+        - `raft_next_index_<peer>`: Next entry to replicate for peer
+        - `kv_set_total`: Total number of SET operations applied
+        - `kv_get_total`: Total number of GET operations
+        - `kv_store_size`: Number of keys in the store
+        
+        **Scrape Configuration:**
+        ```yaml
+        - job_name: 'raft-node'
+          static_configs:
+            - targets: ['node1:8000', 'node2:8000', 'node3:8000']
+        ```
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus metrics in text format
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: |
+                # HELP raft_current_term Current Raft term
+                # TYPE raft_current_term gauge
+                raft_current_term{node_id="1"} 3
+                
+                # HELP raft_is_leader Is this node the leader?
+                # TYPE raft_is_leader gauge
+                raft_is_leader{node_id="1"} 1
+      x-code-samples:
+        - lang: curl
+          source: |
+            curl http://localhost:8001/metrics
+        - lang: bash
+          source: |
+            curl -s http://localhost:8001/metrics | grep raft_is_leader
+
+components:
+  schemas:
+    SetRequest:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+          description: The key to store
+          example: "username"
+        value:
+          type: string
+          description: The value to store
+          example: "alice"
+
+    SetResponse:
+      type: string
+      description: Log entry information
+      example: "Submitted at index 42 term 3"
+
+    GetResponse:
+      type: string
+      description: The stored value
+      example: "alice"
+
+    ErrorResponse:
+      type: string
+      description: Error message
+      example: "Not found"
+
+  headers:
+    Access-Control-Allow-Origin:
+      description: CORS header allowing cross-origin requests
+      schema:
+        type: string
+        enum: ['*']
+    Access-Control-Allow-Methods:
+      description: Allowed HTTP methods for CORS
+      schema:
+        type: string
+        enum: ['GET, POST, PUT, DELETE, OPTIONS']
+    Access-Control-Allow-Headers:
+      description: Allowed headers for CORS
+      schema:
+        type: string
+        enum: ['Content-Type, Authorization']
+
+x-logo:
+  url: 'https://raw.githubusercontent.com/Ashwanthbingi/raft-harmony/main/public/logo.png'
+  altText: 'Raft KV Store Logo'
+
+x-readme:
+  enabled: true
+
+x-codeSamples:
+  - lang: 'Go'
+    label: 'Go'
+    source: |
+      package main
+      
+      import (
+        "fmt"
+        "net/http"
+      )
+      
+      func main() {
+        // Set a value
+        resp, _ := http.Post(
+          "http://localhost:8001/set?key=name&value=alice",
+          "application/x-www-form-urlencoded",
+          nil,
+        )
+        defer resp.Body.Close()
+        
+        // Get a value
+        resp, _ = http.Get("http://localhost:8001/get?key=name")
+        defer resp.Body.Close()
+      }
+
+  - lang: 'Python'
+    label: 'Python'
+    source: |
+      import requests
+      
+      # Set a value
+      response = requests.post(
+        'http://localhost:8001/set',
+        params={'key': 'name', 'value': 'alice'}
+      )
+      print(response.text)
+      
+      # Get a value
+      response = requests.get(
+        'http://localhost:8001/get',
+        params={'key': 'name'}
+      )
+      print(response.text)
+
+  - lang: 'Node.js'
+    label: 'JavaScript'
+    source: |
+      // Set a value
+      fetch('http://localhost:8001/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'name', value: 'alice' })
+      })
+      .then(r => r.text())
+      .then(console.log);
+      
+      // Get a value
+      fetch('http://localhost:8001/get?key=name')
+        .then(r => r.text())
+        .then(console.log);
+
+externalDocs:
+  description: Raft Consensus Algorithm (official paper)
+  url: https://raft.io/raft.pdf
