@@ -75,20 +75,6 @@ func main() {
 	// Expose metrics endpoint
 	http.Handle("/metrics", promhttp.Handler())
 
-	// CORS middleware wrapper
-	corsHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Enable CORS for frontend access (supports both localhost and container network)
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
-		// Handle preflight requests
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-	})
-
 	// Wrap set handler with CORS
 	originalSetHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -154,6 +140,113 @@ func main() {
 		fmt.Fprintf(w, "%s", val)
 	})
 	http.Handle("/get", originalGetHandler)
+
+	// ========== Membership Management Endpoints ==========
+	
+	// GET /peers - List current cluster membership
+	membershipInfoHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+		
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		
+		info := rf.GetMembershipInfo()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(info)
+	})
+	http.Handle("/peers", membershipInfoHandler)
+
+	// POST /add-peer?id=node4&addr=10.0.4.10:9000 - Add a new peer to cluster
+	addPeerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		
+		nodeID := r.URL.Query().Get("id")
+		nodeAddr := r.URL.Query().Get("addr")
+		
+		if nodeID == "" || nodeAddr == "" {
+			http.Error(w, "Missing id or addr parameter", 400)
+			return
+		}
+		
+		// Only leader can add peers
+		if !rf.IsLeader() {
+			http.Error(w, "Only leader can add peers", 500)
+			return
+		}
+		
+		// Append membership change to log
+		idx, term, err := rf.AppendMembershipChange(nodeID, nodeAddr, "ADD")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to add peer: %v", err), 500)
+			return
+		}
+		
+		// Apply immediately (in production, wait for replication)
+		err = rf.ApplyMembershipChange(nodeID, nodeAddr, "ADD")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to apply membership change: %v", err), 500)
+			return
+		}
+		
+		response := fmt.Sprintf("Peer %s (%s) added at log index %d term %d", nodeID, nodeAddr, idx, term)
+		fmt.Fprintf(w, response)
+		log.Println(response)
+	})
+	http.Handle("/add-peer", addPeerHandler)
+
+	// POST /remove-peer?id=node4 - Remove a peer from cluster
+	removePeerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		
+		nodeID := r.URL.Query().Get("id")
+		
+		if nodeID == "" {
+			http.Error(w, "Missing id parameter", 400)
+			return
+		}
+		
+		// Only leader can remove peers
+		if !rf.IsLeader() {
+			http.Error(w, "Only leader can remove peers", 500)
+			return
+		}
+		
+		// Append membership change to log
+		idx, term, err := rf.AppendMembershipChange(nodeID, "", "REMOVE")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to remove peer: %v", err), 500)
+			return
+		}
+		
+		// Apply immediately (in production, wait for replication)
+		err = rf.ApplyMembershipChange(nodeID, "", "REMOVE")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to apply membership change: %v", err), 500)
+			return
+		}
+		
+		response := fmt.Sprintf("Peer %s removed at log index %d term %d", nodeID, idx, term)
+		fmt.Fprintf(w, response)
+		log.Println(response)
+	})
+	http.Handle("/remove-peer", removePeerHandler)
 
 	log.Printf("Starting HTTP server on %s", *httpAddr)
 	go func() {

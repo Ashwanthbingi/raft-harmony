@@ -82,6 +82,9 @@ type Raft struct {
 	lastIncludedIndex int32 // Last log index included in snapshot
 	lastIncludedTerm  int32 // Term of last_included_index
 
+	// Membership management for dynamic cluster changes
+	membership *MembershipConfig
+
 	// Metrics for observability
 	metrics interface{} // *metrics.RaftMetrics (avoid circular import)
 }
@@ -147,6 +150,7 @@ func NewRaft(id string, peers []string, applyCh chan *rpc.LogEntry) *Raft {
 		storage:           storage,
 		lastIncludedIndex: lastIncludedIndex,
 		lastIncludedTerm:  lastIncludedTerm,
+		membership:        NewMembershipConfig(peers),
 	}
 
 	// Initialize nextIndex and matchIndex for all peers

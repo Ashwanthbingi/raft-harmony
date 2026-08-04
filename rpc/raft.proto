@@ -69,3 +69,18 @@ message InstallSnapshotRequest {
 message InstallSnapshotResponse {
   int32 term = 1;  // currentTerm, for leader to update itself
 }
+
+// Membership Change Request
+// Used to add or remove nodes from the cluster
+message MembershipChangeRequest {
+  string node_id = 1;      // ID of the node to add/remove
+  string node_address = 2; // gRPC address (e.g. "10.0.1.10:9000")
+  string action = 3;       // "ADD" or "REMOVE"
+}
+
+// Membership Change Response
+message MembershipChangeResponse {
+  bool success = 1;
+  string message = 2;
+  int32 term = 3;
+}
