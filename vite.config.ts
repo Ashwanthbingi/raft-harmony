@@ -12,4 +12,8 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  nitro: {
+    // Docker runs the generated server with Node, not in a Cloudflare Worker.
+    preset: "node-server",
+  },
 });
