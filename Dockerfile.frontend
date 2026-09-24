@@ -35,8 +35,8 @@ WORKDIR /app
 RUN apk add --no-cache dumb-init
 
 # Copy only the built artifacts from the builder stage
-# .output/ contains the compiled Nitro server and all necessary files
-COPY --from=builder /app/.output ./
+# Keep the .output directory because the command below uses its server entry point.
+COPY --from=builder /app/.output ./.output
 
 # Set environment variables for the Node server
 ENV NODE_ENV=production
